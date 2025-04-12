@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vipps Payment Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+        }
+        .card {
+            margin-bottom: 20px;
+        }
+        #paymentResult {
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">Vipps Payment Test</h1>
+        
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title h5 mb-0">Initiate Payment</h2>
+            </div>
+            <div class="card-body">
+                <form id="paymentForm">
+                    <div class="mb-3">
+                        <label for="amount" class="form-label">Amount (in øre, min 100)</label>
+                        <input type="number" class="form-control" id="amount" name="amount" value="1000" min="100" required>
+                        <small class="form-text text-muted">1000 = 10.00 NOK</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="phoneNumber" class="form-label">Phone Number (with country code)</label>
+                        <input type="text" class="form-control" id="phoneNumber" name="phoneNumber" value="4712345678" required>
+                        <small class="form-text text-muted">Format: 47XXXXXXXX (no + or spaces)</small>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Initiate Payment</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title h5 mb-0">Check Payment Status</h2>
+            </div>
+            <div class="card-body">
+                <form id="statusForm">
+                    <div class="mb-3">
+                        <label for="reference" class="form-label">Payment Reference</label>
+                        <input type="text" class="form-control" id="reference" name="reference" required>
+                    </div>
+                    <button type="submit" class="btn btn-info">Check Status</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title h5 mb-0">Recent Payments</h2>
+            </div>
+            <div class="card-body">
+                <button id="loadPayments" class="btn btn-secondary mb-3">Load Recent Payments</button>
+                <div id="paymentsContainer"></div>
+            </div>
+        </div>
+        
+        <div id="paymentResult" class="alert alert-info d-none"></div>
+    </div>
+    
+    <script>
+        document.getElementById('paymentForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const amount = document.getElementById('amount').value;
+            const phoneNumber = document.getElementById('phoneNumber').value;
+            
+            try {
+                const resultDisplay = document.getElementById('paymentResult');
+                resultDisplay.className = 'alert alert-info';
+                resultDisplay.textContent = 'Processing...';
+                resultDisplay.classList.remove('d-none');
+                
+                const response = await fetch('/api/payment/initiate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ amount, phoneNumber }),
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    resultDisplay.className = 'alert alert-success';
+                    resultDisplay.innerHTML = `
+                        <h4>Payment Initiated!</h4>
+                        <p>Reference: ${result.reference}</p>
+                        <p>Please click the link below to proceed to Vipps:</p>
+                        <p><a href="${result.redirectUrl}" target="_blank" class="btn btn-primary">Go to Vipps Payment</a></p>
+                        <p>After completing payment, you'll be redirected back to this site.</p>
+                    `;
+                    
+                    // Set the reference in the status form for convenience
+                    document.getElementById('reference').value = result.reference;
+                } else {
+                    resultDisplay.className = 'alert alert-danger';
+                    resultDisplay.textContent = `Error: ${result.error}`;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                const resultDisplay = document.getElementById('paymentResult');
+                resultDisplay.className = 'alert alert-danger';
+                resultDisplay.textContent = `Error: ${error.message}`;
+                resultDisplay.classList.remove('d-none');
+            }
+        });
+        
+        document.getElementById('statusForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const reference = document.getElementById('reference').value;
+            
+            try {
+                const resultDisplay = document.getElementById('paymentResult');
+                resultDisplay.className = 'alert alert-info';
+                resultDisplay.textContent = 'Checking status...';
+                resultDisplay.classList.remove('d-none');
+                
+                const response = await fetch(`/api/payment/${reference}/status`);
+                const result = await response.json();
+                
+                resultDisplay.className = 'alert alert-info';
+                resultDisplay.innerHTML = `
+                    <h4>Payment Status:</h4>
+                    <pre>${JSON.stringify(result, null, 2)}</pre>
+                    <p class="mt-3">
+                        <a href="details.html?reference=${reference}" class="btn btn-secondary">View Payment Details</a>
+                    </p>
+                `;
+            } catch (error) {
+                console.error('Error:', error);
+                const resultDisplay = document.getElementById('paymentResult');
+                resultDisplay.className = 'alert alert-danger';
+                resultDisplay.textContent = `Error: ${error.message}`;
+                resultDisplay.classList.remove('d-none');
+            }
+        });
+        
+        document.getElementById('loadPayments').addEventListener('click', async function() {
+            try {
+                const paymentsContainer = document.getElementById('paymentsContainer');
+                paymentsContainer.innerHTML = 'Loading...';
+                
+                const response = await fetch('/api/payments');
+                const payments = await response.json();
+                
+                if (Object.keys(payments).length === 0) {
+                    paymentsContainer.innerHTML = '<p>No payments found</p>';
+                    return;
+                }
+                
+                let html = '<table class="table table-striped"><thead><tr><th>Reference</th><th>Amount</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>';
+                
+                for (const [reference, payment] of Object.entries(payments)) {
+                    html += `
+                        <tr>
+                            <td>${reference}</td>
+                            <td>${payment.amount / 100} NOK</td>
+                            <td>${payment.status}</td>
+                            <td>${new Date(payment.created).toLocaleString()}</td>
+                            <td>
+                                <a href="details.html?reference=${reference}" class="btn btn-sm btn-info">Details</a>
+                            </td>
+                        </tr>
+                    `;
+                }
+                
+                html += '</tbody></table>';
+                paymentsContainer.innerHTML = html;
+            } catch (error) {
+                console.error('Error:', error);
+                const paymentsContainer = document.getElementById('paymentsContainer');
+                paymentsContainer.innerHTML = `<p class="text-danger">Error loading payments: ${error.message}</p>`;
+            }
+        });
+    </script>
+</body>
+</html> 

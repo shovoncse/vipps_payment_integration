@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Status - Vipps Payment Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+        }
+        .card {
+            margin-bottom: 20px;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">Payment Status</h1>
+        
+        <div class="alert alert-info">
+            <p>You've been redirected from Vipps. The payment status will be checked automatically.</p>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title h5 mb-0">Payment Details</h2>
+            </div>
+            <div class="card-body">
+                <div id="statusContainer">
+                    <p>Loading payment details...</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title h5 mb-0">Payment Actions</h2>
+            </div>
+            <div class="card-body">
+                <div id="actionsContainer">
+                    <p>Loading...</p>
+                </div>
+            </div>
+        </div>
+        
+        <a href="/" class="btn btn-secondary">Back to Home</a>
+    </div>
+    
+    <script>
+        // Get reference from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const reference = urlParams.get('reference');
+        
+        // Function to load payment status
+        async function loadPaymentStatus() {
+            if (!reference) {
+                document.getElementById('statusContainer').innerHTML = 
+                    '<div class="alert alert-danger">Missing payment reference</div>';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/payment/${reference}/status`);
+                const data = await response.json();
+                
+                let statusHtml = `
+                    <div class="mb-3">
+                        <strong>Reference:</strong> ${reference}
+                    </div>
+                    <div class="mb-3">
+                        <strong>Status:</strong> 
+                        <span class="badge ${getBadgeClass(data.state)}">${data.state}</span>
+                    </div>
+                `;
+                
+                if (data.amount) {
+                    statusHtml += `
+                        <div class="mb-3">
+                            <strong>Amount:</strong> ${data.amount.value / 100} ${data.amount.currency}
+                        </div>
+                    `;
+                }
+                
+                statusHtml += `
+                    <div class="mb-3">
+                        <strong>Full Response:</strong>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                `;
+                
+                document.getElementById('statusContainer').innerHTML = statusHtml;
+                
+                // Load actions based on current state
+                loadActions(data.state);
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('statusContainer').innerHTML = 
+                    `<div class="alert alert-danger">Error loading payment status: ${error.message}</div>`;
+            }
+        }
+        
+        // Function to load available actions based on payment state
+        function loadActions(state) {
+            let actionsHtml = '';
+            
+            if (state === 'AUTHORIZED') {
+                actionsHtml = `
+                    <form id="captureForm" class="mb-3">
+                        <h5>Capture Payment</h5>
+                        <div class="input-group mb-3">
+                            <input type="number" class="form-control" id="captureAmount" name="amount" placeholder="Amount in øre" required>
+                            <button class="btn btn-success" type="submit">Capture</button>
+                        </div>
+                    </form>
+                    
+                    <form id="cancelForm" class="mb-3">
+                        <h5>Cancel Payment</h5>
+                        <button class="btn btn-danger" type="submit">Cancel</button>
+                    </form>
+                `;
+            } else if (state === 'CAPTURED' || state === 'PARTIALLY_CAPTURED') {
+                actionsHtml = `
+                    <form id="refundForm" class="mb-3">
+                        <h5>Refund Payment</h5>
+                        <div class="input-group mb-3">
+                            <input type="number" class="form-control" id="refundAmount" name="amount" placeholder="Amount in øre" required>
+                            <button class="btn btn-warning" type="submit">Refund</button>
+                        </div>
+                    </form>
+                `;
+                
+                if (state === 'PARTIALLY_CAPTURED') {
+                    actionsHtml += `
+                        <form id="cancelForm" class="mb-3">
+                            <h5>Cancel Remaining Amount</h5>
+                            <button class="btn btn-danger" type="submit">Cancel</button>
+                        </form>
+                    `;
+                }
+            } else {
+                actionsHtml = `
+                    <div class="alert alert-info">
+                        No actions available for payments in ${state} state
+                    </div>
+                `;
+            }
+            
+            document.getElementById('actionsContainer').innerHTML = actionsHtml;
+            
+            // Add event listeners for forms
+            if (state === 'AUTHORIZED') {
+                document.getElementById('captureForm').addEventListener('submit', handleCapture);
+                document.getElementById('cancelForm').addEventListener('submit', handleCancel);
+            } else if (state === 'CAPTURED' || state === 'PARTIALLY_CAPTURED') {
+                document.getElementById('refundForm').addEventListener('submit', handleRefund);
+                if (state === 'PARTIALLY_CAPTURED') {
+                    document.getElementById('cancelForm').addEventListener('submit', handleCancel);
+                }
+            }
+        }
+        
+        // Get appropriate badge class based on state
+        function getBadgeClass(state) {
+            switch (state) {
+                case 'CREATED':
+                    return 'bg-secondary';
+                case 'INITIATED':
+                    return 'bg-primary';
+                case 'AUTHORIZED':
+                    return 'bg-success';
+                case 'CAPTURED':
+                case 'PARTIALLY_CAPTURED':
+                    return 'bg-info';
+                case 'ABORTED':
+                case 'CANCELLED':
+                case 'TERMINATED':
+                    return 'bg-warning';
+                case 'FAILED':
+                    return 'bg-danger';
+                default:
+                    return 'bg-secondary';
+            }
+        }
+        
+        // Handle capture form submission
+        async function handleCapture(e) {
+            e.preventDefault();
+            const amount = document.getElementById('captureAmount').value;
+            
+            try {
+                document.getElementById('actionsContainer').innerHTML = '<p>Processing capture...</p>';
+                
+                const response = await fetch(`/api/payment/${reference}/capture`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ amount }),
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert('Payment captured successfully!');
+                } else {
+                    alert(`Error: ${result.error || 'Something went wrong'}`);
+                }
+                
+                // Reload status to reflect changes
+                loadPaymentStatus();
+            } catch (error) {
+                console.error('Error:', error);
+                alert(`Error: ${error.message}`);
+                loadPaymentStatus();
+            }
+        }
+        
+        // Handle refund form submission
+        async function handleRefund(e) {
+            e.preventDefault();
+            const amount = document.getElementById('refundAmount').value;
+            
+            try {
+                document.getElementById('actionsContainer').innerHTML = '<p>Processing refund...</p>';
+                
+                const response = await fetch(`/api/payment/${reference}/refund`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ amount }),
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert('Payment refunded successfully!');
+                } else {
+                    alert(`Error: ${result.error || 'Something went wrong'}`);
+                }
+                
+                // Reload status to reflect changes
+                loadPaymentStatus();
+            } catch (error) {
+                console.error('Error:', error);
+                alert(`Error: ${error.message}`);
+                loadPaymentStatus();
+            }
+        }
+        
+        // Handle cancel form submission
+        async function handleCancel(e) {
+            e.preventDefault();
+            
+            if (!confirm('Are you sure you want to cancel this payment?')) {
+                return;
+            }
+            
+            try {
+                document.getElementById('actionsContainer').innerHTML = '<p>Processing cancellation...</p>';
+                
+                const response = await fetch(`/api/payment/${reference}/cancel`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert('Payment cancelled successfully!');
+                } else {
+                    alert(`Error: ${result.error || 'Something went wrong'}`);
+                }
+                
+                // Reload status to reflect changes
+                loadPaymentStatus();
+            } catch (error) {
+                console.error('Error:', error);
+                alert(`Error: ${error.message}`);
+                loadPaymentStatus();
+            }
+        }
+        
+        // Load payment status when page loads
+        document.addEventListener('DOMContentLoaded', loadPaymentStatus);
+    </script>
+</body>
+</html> 

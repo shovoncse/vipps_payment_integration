@@ -72,6 +72,10 @@
         </div>
         
         <div id="paymentResult" class="alert alert-info d-none"></div>
+
+        <div class="mt-3">
+            <a href="/payments" class="btn btn-secondary">View All Payments</a>
+        </div>
     </div>
     
     <script>
@@ -170,9 +174,13 @@
                     html += `
                         <tr>
                             <td>${reference}</td>
-                            <td>${payment.amount / 100} NOK</td>
-                            <td>${payment.status}</td>
-                            <td>${new Date(payment.created).toLocaleString()}</td>
+                            <td>${payment.amount} NOK</td>
+                            <td>
+                                <span class="badge ${getStatusClass(payment.state)}">
+                                    ${payment.state || 'UNKNOWN'}
+                                </span>
+                            </td>
+                            <td>${formatDate(payment.created)}</td>
                             <td>
                                 <a href="details.html?reference=${reference}" class="btn btn-sm btn-info">Details</a>
                             </td>
@@ -188,6 +196,32 @@
                 paymentsContainer.innerHTML = `<p class="text-danger">Error loading payments: ${error.message}</p>`;
             }
         });
+
+        function getStatusClass(status) {
+            switch(status?.toLowerCase()) {
+                case 'created':
+                    return 'bg-primary';
+                case 'authorized':
+                    return 'bg-warning';
+                case 'captured':
+                    return 'bg-success';
+                case 'refunded':
+                    return 'bg-info';
+                case 'cancelled':
+                    return 'bg-danger';
+                default:
+                    return 'bg-secondary';
+            }
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            try {
+                return new Date(dateString).toLocaleString();
+            } catch (e) {
+                return 'Invalid Date';
+            }
+        }
     </script>
 </body>
 </html> 

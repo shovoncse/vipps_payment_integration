@@ -1,1 +1,344 @@
- 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Details</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .loading {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        .action-buttons {
+            margin-top: 20px;
+        }
+        .status-badge {
+            font-size: 1.1em;
+            padding: 8px 12px;
+        }
+        .amount-input {
+            max-width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h2>Payment Details</h2>
+        <div id="alert" class="alert" style="display: none;"></div>
+        
+        <div class="card mt-4">
+            <div class="card-body">
+                <h5 class="card-title">Payment Information</h5>
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Reference:</strong> <span id="reference"></span></p>
+                        <p><strong>Amount:</strong> <span id="amount"></span></p>
+                        <p><strong>Phone Number:</strong> <span id="phoneNumber"></span></p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Status:</strong> <span id="status" class="badge"></span></p>
+                        <p><strong>Created:</strong> <span id="created"></span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="action-buttons">
+            <div class="mb-3">
+                <label for="captureAmount" class="form-label">Capture Amount</label>
+                <input type="number" class="form-control amount-input" id="captureAmount" placeholder="Enter amount">
+                <button id="captureButton" class="btn btn-primary mt-2" onclick="capturePayment()">Capture</button>
+            </div>
+
+            <div class="mb-3">
+                <label for="refundAmount" class="form-label">Refund Amount</label>
+                <input type="number" class="form-control amount-input" id="refundAmount" placeholder="Enter amount">
+                <button id="refundButton" class="btn btn-warning mt-2" onclick="refundPayment()">Refund</button>
+            </div>
+
+            <div class="mb-3">
+                <button id="cancelButton" class="btn btn-danger" onclick="cancelPayment()">Cancel Payment</button>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <h4>Payment Events</h4>
+            <div id="events" class="list-group"></div>
+        </div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const paymentReference = urlParams.get('reference');
+
+        if (!paymentReference) {
+            window.location.href = '/';
+        }
+
+        // Helper functions
+        function showLoading(action) {
+            const button = document.getElementById(`${action}Button`);
+            button.disabled = true;
+            button.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...`;
+        }
+
+        function hideLoading(action) {
+            const button = document.getElementById(`${action}Button`);
+            button.disabled = false;
+            button.innerHTML = action.charAt(0).toUpperCase() + action.slice(1);
+        }
+
+        function showSuccess(message) {
+            const alertDiv = document.getElementById('alert');
+            alertDiv.className = 'alert alert-success';
+            alertDiv.textContent = message;
+            alertDiv.style.display = 'block';
+            setTimeout(() => {
+                alertDiv.style.display = 'none';
+            }, 3000);
+        }
+
+        function showError(message) {
+            const alertDiv = document.getElementById('alert');
+            alertDiv.className = 'alert alert-danger';
+            alertDiv.textContent = message;
+            alertDiv.style.display = 'block';
+        }
+
+        function updateStatusBadge(status) {
+            const statusBadge = document.getElementById('status');
+            statusBadge.textContent = status;
+            statusBadge.className = 'badge status-badge';
+            
+            switch(status.toLowerCase()) {
+                case 'initiated':
+                    statusBadge.classList.add('bg-primary');
+                    break;
+                case 'authorized':
+                    statusBadge.classList.add('bg-warning');
+                    break;
+                case 'captured':
+                    statusBadge.classList.add('bg-success');
+                    break;
+                case 'refunded':
+                    statusBadge.classList.add('bg-info');
+                    break;
+                case 'cancelled':
+                    statusBadge.classList.add('bg-danger');
+                    break;
+                default:
+                    statusBadge.classList.add('bg-secondary');
+            }
+        }
+
+        async function updatePaymentDetails() {
+            try {
+                const response = await fetch(`/api/payment/${paymentReference}`);
+                const payment = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(payment.error || 'Failed to load payment details');
+                }
+
+                // Update payment information
+                document.getElementById('reference').textContent = paymentReference;
+                document.getElementById('amount').textContent = `${payment.amount} NOK`;
+                document.getElementById('phoneNumber').textContent = payment.phoneNumber || 'N/A';
+                document.getElementById('created').textContent = formatDate(payment.created);
+                
+                // Update status badge
+                const statusBadge = document.getElementById('status');
+                statusBadge.textContent = payment.state || 'UNKNOWN';
+                statusBadge.className = `badge ${getStatusClass(payment.state)}`;
+
+                // Show/hide action buttons based on status
+                const captureDiv = document.getElementById('captureButton').parentElement;
+                const refundDiv = document.getElementById('refundButton').parentElement;
+                const cancelDiv = document.getElementById('cancelButton').parentElement;
+
+                // Reset all buttons to hidden
+                captureDiv.style.display = 'none';
+                refundDiv.style.display = 'none';
+                cancelDiv.style.display = 'none';
+
+                // Show appropriate buttons based on payment state
+                switch(payment.state?.toLowerCase()) {
+                    case 'authorized':
+                        captureDiv.style.display = 'block';
+                        cancelDiv.style.display = 'block';
+                        break;
+                    case 'captured':
+                        refundDiv.style.display = 'block';
+                        break;
+                }
+
+                // Update input values
+                document.getElementById('captureAmount').value = payment.amount;
+                document.getElementById('refundAmount').value = payment.amount;
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        async function updatePaymentEvents() {
+            try {
+                const response = await fetch(`/api/payment/${paymentReference}/events`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const events = await response.json();
+                
+                const eventsContainer = document.getElementById('events');
+                eventsContainer.innerHTML = '';
+
+                if (!events || events.length === 0) {
+                    eventsContainer.innerHTML = '<div class="list-group-item">No events found</div>';
+                    return;
+                }
+
+                // Sort events by timestamp
+                events.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+                events.forEach(event => {
+                    const eventElement = document.createElement('div');
+                    eventElement.className = 'list-group-item';
+                    eventElement.innerHTML = `
+                        <div class="d-flex justify-content-between">
+                            <span class="badge ${getStatusClass(event.type)}">${event.type}</span>
+                            <small>${formatDate(event.timestamp)}</small>
+                        </div>
+                        <p class="mb-0 mt-2">${event.description}</p>
+                    `;
+                    eventsContainer.appendChild(eventElement);
+                });
+            } catch (error) {
+                console.error('Error loading events:', error);
+                const eventsContainer = document.getElementById('events');
+                eventsContainer.innerHTML = `
+                    <div class="list-group-item">
+                        <div class="alert alert-warning">
+                            Error loading events: ${error.message}
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function getStatusClass(status) {
+            switch(status?.toLowerCase()) {
+                case 'created':
+                    return 'bg-primary';
+                case 'authorized':
+                    return 'bg-warning';
+                case 'captured':
+                    return 'bg-success';
+                case 'refunded':
+                    return 'bg-info';
+                case 'cancelled':
+                    return 'bg-danger';
+                default:
+                    return 'bg-secondary';
+            }
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            try {
+                return new Date(dateString).toLocaleString();
+            } catch (e) {
+                return 'Invalid Date';
+            }
+        }
+
+        // Add event listeners for action buttons
+        document.getElementById('captureButton').addEventListener('click', async function() {
+            try {
+                showLoading('capture');
+                const amount = document.getElementById('captureAmount').value;
+                
+                const response = await fetch(`/api/payment/${paymentReference}/capture`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ amount })
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Failed to capture payment');
+                }
+                
+                showSuccess('Payment captured successfully');
+                updatePaymentDetails();
+                updatePaymentEvents();
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                hideLoading('capture');
+            }
+        });
+
+        document.getElementById('refundButton').addEventListener('click', async function() {
+            try {
+                showLoading('refund');
+                const amount = document.getElementById('refundAmount').value;
+                
+                const response = await fetch(`/api/payment/${paymentReference}/refund`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ amount })
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Failed to refund payment');
+                }
+                
+                showSuccess('Payment refunded successfully');
+                updatePaymentDetails();
+                updatePaymentEvents();
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                hideLoading('refund');
+            }
+        });
+
+        document.getElementById('cancelButton').addEventListener('click', async function() {
+            try {
+                showLoading('cancel');
+                
+                const response = await fetch(`/api/payment/${paymentReference}/cancel`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Failed to cancel payment');
+                }
+                
+                showSuccess('Payment cancelled successfully');
+                updatePaymentDetails();
+                updatePaymentEvents();
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                hideLoading('cancel');
+            }
+        });
+
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', () => {
+            updatePaymentDetails();
+            updatePaymentEvents();
+        });
+    </script>
+</body>
+</html>

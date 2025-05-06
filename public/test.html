@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Vipps API Test</title>
+    <style>
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+        .api-section { margin-bottom: 30px; padding: 20px; border: 1px solid #ddd; }
+        .response { background: #f5f5f5; padding: 10px; margin-top: 10px; }
+        button { padding: 8px 16px; margin: 5px; }
+        input { padding: 8px; margin: 5px; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Vipps API Test Interface</h1>
+
+        <!-- Initiate Payment -->
+        <div class="api-section">
+            <h2>Initiate Payment</h2>
+            <input type="number" id="amount" placeholder="Amount (NOK)" step="0.01" min="0">
+            <input type="text" id="phone" placeholder="Phone Number">
+            <button id="initiateButton">Initiate</button>
+            <div id="initiateResponse" class="response"></div>
+        </div>
+
+        <!-- Get Payment Status -->
+        <div class="api-section">
+            <h2>Get Payment Status</h2>
+            <input type="text" id="statusReference" placeholder="Payment Reference">
+            <button onclick="getPaymentStatus()">Get Status</button>
+            <div id="statusResponse" class="response"></div>
+        </div>
+
+        <!-- Capture Payment -->
+        <div class="api-section">
+            <h2>Capture Payment</h2>
+            <input type="text" id="captureReference" placeholder="Payment Reference">
+            <input type="number" id="captureAmount" placeholder="Amount to Capture">
+            <button onclick="capturePayment()">Capture</button>
+            <div id="captureResponse" class="response"></div>
+        </div>
+
+        <!-- Refund Payment -->
+        <div class="api-section">
+            <h2>Refund Payment</h2>
+            <input type="text" id="refundReference" placeholder="Payment Reference">
+            <input type="number" id="refundAmount" placeholder="Amount to Refund">
+            <button onclick="refundPayment()">Refund</button>
+            <div id="refundResponse" class="response"></div>
+        </div>
+
+        <!-- Cancel Payment -->
+        <div class="api-section">
+            <h2>Cancel Payment</h2>
+            <input type="text" id="cancelReference" placeholder="Payment Reference">
+            <button onclick="cancelPayment()">Cancel</button>
+            <div id="cancelResponse" class="response"></div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('initiateButton').addEventListener('click', async function() {
+            const amount = document.getElementById('amount').value;
+            const phone = document.getElementById('phone').value;
+            
+            if (!amount || !phone) {
+                alert('Please enter both amount and phone number');
+                return;
+            }
+            
+            const amountInMinorUnits = Math.round(parseFloat(amount) * 100);
+            const requestBody = {
+                amount: amountInMinorUnits,
+                phoneNumber: phone
+            };
+            
+            try {
+                const response = await fetch('/api/payment/initiate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to initiate payment');
+                }
+                
+                if (data.redirectUrl) {
+                    window.location.href = data.redirectUrl;
+                } else {
+                    document.getElementById('initiateResponse').textContent = JSON.stringify(data, null, 2);
+                    document.getElementById('initiateResponse').className = 'response success';
+                }
+            } catch (error) {
+                document.getElementById('initiateResponse').textContent = `Error: ${error.message}`;
+                document.getElementById('initiateResponse').className = 'response error';
+            }
+        });
+
+        async function getPaymentStatus() {
+            const reference = document.getElementById('statusReference').value;
+            if (!reference) {
+                alert('Please enter a payment reference');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/payment/${reference}/status`);
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to get payment status');
+                }
+                
+                document.getElementById('statusResponse').textContent = JSON.stringify(data, null, 2);
+                document.getElementById('statusResponse').className = 'response success';
+            } catch (error) {
+                document.getElementById('statusResponse').textContent = `Error: ${error.message}`;
+                document.getElementById('statusResponse').className = 'response error';
+            }
+        }
+
+        async function capturePayment() {
+            const reference = document.getElementById('captureReference').value;
+            const amount = document.getElementById('captureAmount').value;
+            
+            if (!reference || !amount) {
+                alert('Please enter both reference and amount');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/payment/${reference}/capture`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount: parseInt(amount) })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to capture payment');
+                }
+                
+                document.getElementById('captureResponse').textContent = JSON.stringify(data, null, 2);
+                document.getElementById('captureResponse').className = 'response success';
+            } catch (error) {
+                document.getElementById('captureResponse').textContent = `Error: ${error.message}`;
+                document.getElementById('captureResponse').className = 'response error';
+            }
+        }
+
+        async function refundPayment() {
+            const reference = document.getElementById('refundReference').value;
+            const amount = document.getElementById('refundAmount').value;
+            
+            if (!reference || !amount) {
+                alert('Please enter both reference and amount');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/payment/${reference}/refund`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount: parseInt(amount) })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to refund payment');
+                }
+                
+                document.getElementById('refundResponse').textContent = JSON.stringify(data, null, 2);
+                document.getElementById('refundResponse').className = 'response success';
+            } catch (error) {
+                document.getElementById('refundResponse').textContent = `Error: ${error.message}`;
+                document.getElementById('refundResponse').className = 'response error';
+            }
+        }
+
+        async function cancelPayment() {
+            const reference = document.getElementById('cancelReference').value;
+            
+            if (!reference) {
+                alert('Please enter a payment reference');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/payment/${reference}/cancel`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to cancel payment');
+                }
+                
+                document.getElementById('cancelResponse').textContent = JSON.stringify(data, null, 2);
+                document.getElementById('cancelResponse').className = 'response success';
+            } catch (error) {
+                document.getElementById('cancelResponse').textContent = `Error: ${error.message}`;
+                document.getElementById('cancelResponse').className = 'response error';
+            }
+        }
+    </script>
+</body>
+</html> 

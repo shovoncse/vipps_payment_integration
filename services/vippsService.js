@@ -70,7 +70,7 @@ class VippsService {
         {
           amount: {
             currency: "NOK",
-            value: amount
+            value: parseInt(amount)
           },
           paymentMethod: {
             type: "WALLET"
@@ -81,7 +81,7 @@ class VippsService {
           reference: reference,
           returnUrl: returnUrl,
           userFlow: "WEB_REDIRECT",
-          paymentDescription: "Test payment"
+          paymentDescription: "Payment for order"
         },
         {
           headers: {
@@ -97,8 +97,7 @@ class VippsService {
       
       return response.data;
     } catch (error) {
-      console.error('Error initiating payment:', error.response?.data || error.message);
-      throw new Error('Failed to initiate payment: ' + (error.response?.data?.message || error.message));
+      throw new Error(error.response?.data?.message || error.message);
     }
   }
 

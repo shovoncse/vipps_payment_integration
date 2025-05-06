@@ -1,0 +1,94 @@
+        async function loadPayments() {
+            try {
+                const response = await fetch('/api/payments');
+                const payments = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error('Failed to load payments');
+                }
+
+                const paymentsDiv = document.getElementById('payments');
+                paymentsDiv.innerHTML = '';
+
+                if (Object.keys(payments).length === 0) {
+                    paymentsDiv.innerHTML = `
+                        <div class="col-12">
+                            <div class="alert alert-info">
+                                No payments found. <a href="/">Create a new payment</a>
+                            </div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Create table structure
+                const table = document.createElement('table');
+                table.className = 'table table-striped table-hover';
+                table.innerHTML = `
+                    <thead>
+                        <tr>
+                            <th>Reference</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="paymentsTableBody"></tbody>
+                `;
+
+                const tbody = table.querySelector('#paymentsTableBody');
+
+                Object.entries(payments).forEach(([reference, payment]) => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${reference}</td>
+                        <td>${payment.amount} NOK</td>
+                        <td>
+                            <span class="badge ${getStatusClass(payment.state)}">
+                                ${payment.state || 'UNKNOWN'}
+                            </span>
+                        </td>
+                        <td>${formatDate(payment.created)}</td>
+                        <td>
+                            <a href="/details?reference=${reference}" class="btn btn-sm btn-info me-1">Details</a>
+                            <a href="/status?reference=${reference}" class="btn btn-sm btn-secondary">Status</a>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+
+                paymentsDiv.appendChild(table);
+            } catch (error) {
+                const alertDiv = document.getElementById('alert');
+                alertDiv.className = 'alert alert-danger';
+                alertDiv.textContent = error.message;
+                alertDiv.style.display = 'block';
+            }
+        }
+
+        function getStatusClass(status) {
+            switch(status?.toLowerCase()) {
+                case 'created':
+                    return 'bg-primary';
+                case 'authorized':
+                    return 'bg-warning';
+                case 'captured':
+                    return 'bg-success';
+                case 'refunded':
+                    return 'bg-info';
+                case 'cancelled':
+                    return 'bg-danger';
+                default:
+                    return 'bg-secondary';
+            }
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            try {
+                return new Date(dateString).toLocaleString();
+            } catch (e) {
+                return 'Invalid Date';
+            }
+        } 

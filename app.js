@@ -8,9 +8,6 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Store references to payments for testing
-const paymentStore = {};
-
 // Middleware
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -30,39 +27,19 @@ app.post('/api/payment/initiate', async (req, res) => {
       return res.status(400).json({ error: 'Amount and phone number are required' });
     }
     
-    // Generate a unique reference for this payment
-    const reference = `test-payment-${uuidv4()}`;
-    
-    // The URL that Vipps will redirect to after payment
-    const returnUrl = `${req.protocol}://${req.get('host')}/payment-return?reference=${reference}`;
+    // Generate a unique reference for the payment
+    const reference = uuidv4();
     
     const result = await vippsService.initiatePayment(
-      parseInt(amount, 10),
-      phoneNumber,
       reference,
-      returnUrl
+      amount,
+      phoneNumber
     );
     
-    // Store payment reference for later lookups
-    paymentStore[reference] = {
-      amount,
-      phoneNumber,
-      created: new Date().toISOString(),
-      status: 'INITIATED'
-    };
-    
-    res.json({
-      success: true,
-      reference,
-      redirectUrl: result.redirectUrl,
-      message: 'Payment initiated. Click the redirectUrl to proceed to Vipps.'
-    });
+    res.json(result);
   } catch (error) {
-    console.error('Error initiating payment:', error);
-    res.status(500).json({ 
-      error: 'Failed to initiate payment',
-      details: error.response?.data || error.message
-    });
+    // Return the actual Vipps API error response
+    res.status(error.response?.status || 500).json(error.response?.data || error.message);
   }
 });
 
@@ -89,33 +66,43 @@ app.get('/api/payment/:reference/status', async (req, res) => {
     const { reference } = req.params;
     const result = await vippsService.getPaymentStatus(reference);
     
-    // Update our store
-    if (paymentStore[reference]) {
-      paymentStore[reference].status = result.state;
+    // Update payment store
+    const payment = paymentStore.get(reference);
+    if (payment) {
+      payment.state = result.state;
+      payment.events.push({
+        type: result.state,
+        timestamp: new Date().toISOString(),
+        description: `Payment status updated to ${result.state}`
+      });
     }
     
     res.json(result);
   } catch (error) {
-    console.error('Error getting payment status:', error);
-    res.status(500).json({ 
-      error: 'Failed to get payment status',
-      details: error.response?.data || error.message
-    });
+    res.status(error.response?.status || 500).json(error.response?.data || { error: error.message });
   }
 });
 
 // Get payment events
-app.get('/api/payment/:reference/events', async (req, res) => {
+app.get('/api/payment/:reference/events', (req, res) => {
   try {
     const { reference } = req.params;
-    const result = await vippsService.getPaymentEvents(reference);
-    res.json(result);
+    const payment = paymentStore.get(reference);
+    
+    if (!payment) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    // Ensure events array exists and is properly formatted
+    const events = payment.events || [];
+    
+    // Sort events by timestamp
+    events.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    
+    res.json(events);
   } catch (error) {
-    console.error('Error getting payment events:', error);
-    res.status(500).json({ 
-      error: 'Failed to get payment events',
-      details: error.response?.data || error.message
-    });
+    console.error('Error in events endpoint:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -124,19 +111,10 @@ app.post('/api/payment/:reference/capture', async (req, res) => {
   try {
     const { reference } = req.params;
     const { amount } = req.body;
-    
-    if (!amount) {
-      return res.status(400).json({ error: 'Amount is required for capture' });
-    }
-    
-    const result = await vippsService.capturePayment(reference, parseInt(amount, 10));
+    const result = await vippsService.capturePayment(reference, amount);
     res.json(result);
   } catch (error) {
-    console.error('Error capturing payment:', error);
-    res.status(500).json({ 
-      error: 'Failed to capture payment',
-      details: error.response?.data || error.message
-    });
+    res.status(error.response?.status || 500).json(error.response?.data || error.message);
   }
 });
 
@@ -145,19 +123,10 @@ app.post('/api/payment/:reference/refund', async (req, res) => {
   try {
     const { reference } = req.params;
     const { amount } = req.body;
-    
-    if (!amount) {
-      return res.status(400).json({ error: 'Amount is required for refund' });
-    }
-    
-    const result = await vippsService.refundPayment(reference, parseInt(amount, 10));
+    const result = await vippsService.refundPayment(reference, amount);
     res.json(result);
   } catch (error) {
-    console.error('Error refunding payment:', error);
-    res.status(500).json({ 
-      error: 'Failed to refund payment',
-      details: error.response?.data || error.message
-    });
+    res.status(error.response?.status || 500).json(error.response?.data || error.message);
   }
 });
 
@@ -168,17 +137,39 @@ app.post('/api/payment/:reference/cancel', async (req, res) => {
     const result = await vippsService.cancelPayment(reference);
     res.json(result);
   } catch (error) {
-    console.error('Error canceling payment:', error);
-    res.status(500).json({ 
-      error: 'Failed to cancel payment',
-      details: error.response?.data || error.message
-    });
+    res.status(error.response?.status || 500).json(error.response?.data || error.message);
   }
 });
 
 // Get all stored payment references (for testing)
 app.get('/api/payments', (req, res) => {
-  res.json(paymentStore);
+  const payments = {};
+  paymentStore.forEach((payment, reference) => {
+    payments[reference] = payment;
+  });
+  res.json(payments);
+});
+
+// Add this route after the existing routes
+app.get('/details', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'details.html'));
+});
+
+// Add these routes for payment details and events
+app.get('/api/payment/:reference', (req, res) => {
+  const { reference } = req.params;
+  const payment = paymentStore.get(reference);
+  
+  if (!payment) {
+    return res.status(404).json({ error: 'Payment not found' });
+  }
+
+  res.json(payment);
+});
+
+// Add test page route
+app.get('/test', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'test.html'));
 });
 
 // Start server
